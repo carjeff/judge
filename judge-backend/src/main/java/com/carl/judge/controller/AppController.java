@@ -2,10 +2,7 @@ package com.carl.judge.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.carl.judge.annotation.AuthCheck;
-import com.carl.judge.common.BaseResponse;
-import com.carl.judge.common.DeleteRequest;
-import com.carl.judge.common.ErrorCode;
-import com.carl.judge.common.ResultUtils;
+import com.carl.judge.common.*;
 import com.carl.judge.constant.UserConstant;
 import com.carl.judge.exception.BusinessException;
 import com.carl.judge.exception.ThrowUtils;
@@ -15,6 +12,7 @@ import com.carl.judge.model.dto.app.AppQueryRequest;
 import com.carl.judge.model.dto.app.AppUpdateRequest;
 import com.carl.judge.model.entity.App;
 import com.carl.judge.model.entity.User;
+import com.carl.judge.model.enums.ReviewStatusEnum;
 import com.carl.judge.model.vo.AppVO;
 import com.carl.judge.service.AppService;
 import com.carl.judge.service.UserService;
@@ -24,12 +22,13 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.util.Date;
 
 /**
  * 应用接口
  *
- * @author <a href="https://github.com/liyupi">程序员鱼皮</a>
- * @from <a href="https://www.code-nav.cn">编程导航学习圈</a>
+ * 
+ * 
  */
 @RestController
 @RequestMapping("/app")
@@ -54,14 +53,15 @@ public class AppController {
     @PostMapping("/add")
     public BaseResponse<Long> addApp(@RequestBody AppAddRequest appAddRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(appAddRequest == null, ErrorCode.PARAMS_ERROR);
-        // todo 在此处将实体类和 DTO 进行转换
+        // 在此处将实体类和 DTO 进行转换
         App app = new App();
         BeanUtils.copyProperties(appAddRequest, app);
         // 数据校验
         appService.validApp(app, true);
-        // todo 填充默认值
+        // 填充默认值
         User loginUser = userService.getLoginUser(request);
         app.setUserId(loginUser.getId());
+        app.setReviewStatus(ReviewStatusEnum.REVIEWING.getValue());
         // 写入数据库
         boolean result = appService.save(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
@@ -109,7 +109,7 @@ public class AppController {
         if (appUpdateRequest == null || appUpdateRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        // todo 在此处将实体类和 DTO 进行转换
+        //  在此处将实体类和 DTO 进行转换
         App app = new App();
         BeanUtils.copyProperties(appUpdateRequest, app);
         // 数据校验
@@ -171,6 +171,7 @@ public class AppController {
         long size = appQueryRequest.getPageSize();
         // 限制爬虫
         ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+        appQueryRequest.setReviewStatus(ReviewStatusEnum.PASS.getValue());
         // 查询数据库
         Page<App> appPage = appService.page(new Page<>(current, size),
                 appService.getQueryWrapper(appQueryRequest));
@@ -229,6 +230,7 @@ public class AppController {
         if (!oldApp.getUserId().equals(loginUser.getId()) && !userService.isAdmin(loginUser)) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
+        app.setReviewStatus(ReviewStatusEnum.REVIEWING.getValue());
         // 操作数据库
         boolean result = appService.updateById(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
@@ -236,4 +238,45 @@ public class AppController {
     }
 
     // endregion
+
+    /**
+     * 审核应用信息
+     * @param reviewRequest
+     * @param request
+     * @return
+     */
+    @PostMapping("/review")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<Boolean> doAppReview(@RequestBody ReviewRequest reviewRequest, HttpServletRequest request){
+        //校验是否为空
+        ThrowUtils.throwIf(reviewRequest == null, ErrorCode.PARAMS_ERROR, "审核请求不能为空");
+
+        //校验是否有该状态
+        Long id = reviewRequest.getId();
+        Integer reviewStatus = reviewRequest.getReviewStatus();
+        ReviewStatusEnum value = ReviewStatusEnum.getEnumByValue(reviewStatus);
+        if (id == null || value == null){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "审核请求参数错误");
+        }
+        //判断app是否存在
+        App oldApp = appService.getById(id);
+        ThrowUtils.throwIf(oldApp == null, ErrorCode.NOT_FOUND_ERROR, "该应用不存在");
+        //如果已经是该状态，不重复操作
+        if (oldApp.getReviewStatus().equals(reviewStatus)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请勿重复审核");
+        }
+        //修改状态
+        App newApp = new App();
+        User loginUser = userService.getLoginUser(request);
+        newApp.setId(id);
+        newApp.setReviewStatus(reviewStatus);
+        newApp.setReviewMessage(reviewRequest.getReviewMessage());
+        newApp.setReviewerId(loginUser.getId());
+        newApp.setReviewTime(new Date());
+        //操作数据库
+        boolean result = appService.updateById(newApp);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "审核失败");
+        return ResultUtils.success(true);
+    }
+
 }

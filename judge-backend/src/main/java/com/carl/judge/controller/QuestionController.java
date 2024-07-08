@@ -1,5 +1,6 @@
 package com.carl.judge.controller;
 
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.carl.judge.annotation.AuthCheck;
 import com.carl.judge.common.BaseResponse;
@@ -9,10 +10,7 @@ import com.carl.judge.common.ResultUtils;
 import com.carl.judge.constant.UserConstant;
 import com.carl.judge.exception.BusinessException;
 import com.carl.judge.exception.ThrowUtils;
-import com.carl.judge.model.dto.question.QuestionAddRequest;
-import com.carl.judge.model.dto.question.QuestionEditRequest;
-import com.carl.judge.model.dto.question.QuestionQueryRequest;
-import com.carl.judge.model.dto.question.QuestionUpdateRequest;
+import com.carl.judge.model.dto.question.*;
 import com.carl.judge.model.entity.Question;
 import com.carl.judge.model.entity.User;
 import com.carl.judge.model.vo.QuestionVO;
@@ -24,12 +22,13 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.util.List;
 
 /**
  * 题目接口
  *
- * @author <a href="https://github.com/liyupi">程序员鱼皮</a>
- * @from <a href="https://www.code-nav.cn">编程导航学习圈</a>
+ * 
+ * 
  */
 @RestController
 @RequestMapping("/question")
@@ -57,9 +56,11 @@ public class QuestionController {
         // todo 在此处将实体类和 DTO 进行转换
         Question question = new Question();
         BeanUtils.copyProperties(questionAddRequest, question);
+        List<QuestionContentDTO> questionContentDTO = questionAddRequest.getQuestionContent();
+        question.setQuestionContent(JSONUtil.toJsonStr(questionContentDTO));
         // 数据校验
         questionService.validQuestion(question, true);
-        // todo 填充默认值
+        // 填充默认值
         User loginUser = userService.getLoginUser(request);
         question.setUserId(loginUser.getId());
         // 写入数据库
@@ -112,6 +113,8 @@ public class QuestionController {
         // todo 在此处将实体类和 DTO 进行转换
         Question question = new Question();
         BeanUtils.copyProperties(questionUpdateRequest, question);
+        List<QuestionContentDTO> questionContentDTO = questionUpdateRequest.getQuestionContent();
+        question.setQuestionContent(JSONUtil.toJsonStr(questionContentDTO));
         // 数据校验
         questionService.validQuestion(question, false);
         // 判断是否存在
@@ -215,9 +218,11 @@ public class QuestionController {
         if (questionEditRequest == null || questionEditRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        // todo 在此处将实体类和 DTO 进行转换
+        //在此处将实体类和 DTO 进行转换
         Question question = new Question();
         BeanUtils.copyProperties(questionEditRequest, question);
+        List<QuestionContentDTO> questionContentDTO = questionEditRequest.getQuestionContent();
+        question.setQuestionContent(JSONUtil.toJsonStr(questionContentDTO));
         // 数据校验
         questionService.validQuestion(question, false);
         User loginUser = userService.getLoginUser(request);

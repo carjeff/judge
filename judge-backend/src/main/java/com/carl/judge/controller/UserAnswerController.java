@@ -1,5 +1,6 @@
 package com.carl.judge.controller;
 
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.carl.judge.annotation.AuthCheck;
 import com.carl.judge.common.BaseResponse;
@@ -13,9 +14,13 @@ import com.carl.judge.model.dto.userAnswer.UserAnswerAddRequest;
 import com.carl.judge.model.dto.userAnswer.UserAnswerEditRequest;
 import com.carl.judge.model.dto.userAnswer.UserAnswerQueryRequest;
 import com.carl.judge.model.dto.userAnswer.UserAnswerUpdateRequest;
+import com.carl.judge.model.entity.App;
 import com.carl.judge.model.entity.UserAnswer;
 import com.carl.judge.model.entity.User;
+import com.carl.judge.model.enums.ReviewStatusEnum;
 import com.carl.judge.model.vo.UserAnswerVO;
+import com.carl.judge.scoring.ScoringStrategyExecutor;
+import com.carl.judge.service.AppService;
 import com.carl.judge.service.UserAnswerService;
 import com.carl.judge.service.UserService;
 import lombok.extern.slf4j.Slf4j;
@@ -24,12 +29,13 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.util.List;
 
 /**
  * 用户答案接口
  *
- * @author <a href="https://github.com/liyupi">程序员鱼皮</a>
- * @from <a href="https://www.code-nav.cn">编程导航学习圈</a>
+ * 
+ * 
  */
 @RestController
 @RequestMapping("/userAnswer")
@@ -37,11 +43,16 @@ import javax.servlet.http.HttpServletRequest;
 public class UserAnswerController {
 
     @Resource
+    private AppService appService;
+
+    @Resource
     private UserAnswerService userAnswerService;
 
     @Resource
     private UserService userService;
 
+    @Resource
+    private ScoringStrategyExecutor scoringStrategyExecutor;
     // region 增删改查
 
     /**
@@ -54,12 +65,21 @@ public class UserAnswerController {
     @PostMapping("/add")
     public BaseResponse<Long> addUserAnswer(@RequestBody UserAnswerAddRequest userAnswerAddRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(userAnswerAddRequest == null, ErrorCode.PARAMS_ERROR);
-        // todo 在此处将实体类和 DTO 进行转换
+        // 在此处将实体类和 DTO 进行转换
         UserAnswer userAnswer = new UserAnswer();
         BeanUtils.copyProperties(userAnswerAddRequest, userAnswer);
+        List<String> choices = userAnswerAddRequest.getChoices();
+        userAnswer.setChoices(JSONUtil.toJsonStr(choices));
         // 数据校验
+        Long appId = userAnswerAddRequest.getAppId();
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
         userAnswerService.validUserAnswer(userAnswer, true);
-        // todo 填充默认值
+        if (!ReviewStatusEnum.PASS.equals(ReviewStatusEnum.getEnumByValue(app.getReviewStatus()))){
+
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用未通过审核");
+        }
+        // 填充默认值
         User loginUser = userService.getLoginUser(request);
         userAnswer.setUserId(loginUser.getId());
         // 写入数据库
@@ -67,6 +87,15 @@ public class UserAnswerController {
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         // 返回新写入的数据 id
         long newUserAnswerId = userAnswer.getId();
+
+        //调用评分模块
+        try {
+            UserAnswer userAnswerWihtResult = scoringStrategyExecutor.doScore(choices, app);
+            userAnswerWihtResult.setId(newUserAnswerId);
+            userAnswerService.updateById(userAnswerWihtResult);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "评分失败");
+        }
         return ResultUtils.success(newUserAnswerId);
     }
 
@@ -112,6 +141,8 @@ public class UserAnswerController {
         // todo 在此处将实体类和 DTO 进行转换
         UserAnswer userAnswer = new UserAnswer();
         BeanUtils.copyProperties(userAnswerUpdateRequest, userAnswer);
+        List<String> choices = userAnswerUpdateRequest.getChoices();
+        userAnswer.setChoices(JSONUtil.toJsonStr(choices));
         // 数据校验
         userAnswerService.validUserAnswer(userAnswer, false);
         // 判断是否存在
@@ -218,6 +249,8 @@ public class UserAnswerController {
         // todo 在此处将实体类和 DTO 进行转换
         UserAnswer userAnswer = new UserAnswer();
         BeanUtils.copyProperties(userAnswerEditRequest, userAnswer);
+        List<String> choices = userAnswerEditRequest.getChoices();
+        userAnswer.setChoices(JSONUtil.toJsonStr(choices));
         // 数据校验
         userAnswerService.validUserAnswer(userAnswer, false);
         User loginUser = userService.getLoginUser(request);
